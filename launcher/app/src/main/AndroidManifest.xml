@@ -21,6 +21,12 @@
     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
+    <!-- Tahanan's Continue watching row: the TV's Watch Next rows (WatchNextSource). READ_TV_LISTINGS is a runtime
+         permission that build-and-install grants with pm grant; READ_EPG_DATA is normal and granted at install.
+         INTERNET is only for fetching those rows' poster images (PosterCache), nothing else. -->
+    <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+    <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->
@@ -68,6 +74,8 @@
         <!-- Coocaa OS sources for the Inputs menu (coocaa_sources); see CoocaaSources. -->
         <provider android:authorities="com.skyworth.tv.provider" />
         <provider android:authorities="com.skyworth.tv.sdk.provider" />
+        <!-- The TV provider, for the Continue watching row (WatchNextSource). -->
+        <provider android:authorities="android.media.tv" />
     </queries>
 
     <application

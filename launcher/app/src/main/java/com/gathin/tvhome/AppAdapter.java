@@ -64,9 +64,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     static final class Entry {
-        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3;
+        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3, WATCH = 4;
 
         final int kind;
+        /** The Continue watching title a WATCH tile opens; null for every other kind. */
+        WatchNext.Program watch;
         final String label;
         final ComponentName component;
         final String pkg;
@@ -217,6 +219,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Every app tile is its icon on a card tinted from that icon, never its banner (config.xml, uniform_tiles). */
     private final boolean uniformTiles;
     private final List<Entry> items = new ArrayList<>();
+    /** Continue watching titles for the next reload() (setWatchNext), already picked by WatchNext.select. */
+    private List<WatchNext.Program> watchNext = Collections.emptyList();
+    /** First position of the Continue watching row at the last reload(), its posters and its empty cells; -1 for none. */
+    private int watchStart = -1, watchCount, watchPad;
+    private PosterCache posters;
 
     AppAdapter(Context ctx, TileListener listener, int dockSize, Config cfg) {
         this.ctx = ctx;
@@ -335,9 +342,60 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             fresh.add(docked + i, new Entry(Entry.EMPTY, "", new ComponentName(ctx, "empty-dock-slot-" + i),
                     null, null, null, 0));
         }
+        addWatchRow(fresh, pm);
         items.clear();
         items.addAll(fresh);
         notifyDataSetChanged();
+    }
+
+    /** Continue watching titles to show from the next reload() on; an empty list removes the row. */
+    void setWatchNext(List<WatchNext.Program> selected) {
+        watchNext = selected == null ? Collections.emptyList() : new ArrayList<>(selected);
+    }
+
+    /**
+     * Puts the Continue watching row right after the dock row: its posters, then empty cells up to a full row so
+     * the app grid below starts on its own line (WatchRow). Left out when the first row is not a full dock row.
+     */
+    private void addWatchRow(List<Entry> fresh, PackageManager pm) {
+        watchStart = -1;
+        watchCount = watchPad = 0;
+        int n = Math.min(watchNext.size(), dockSize);
+        int pad = WatchRow.padding(n, dockSize, dockRow, singleRow, reordering);
+        if (pad < 0 || fresh.size() < dockSize) return;
+        List<Entry> row = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            WatchNext.Program p = watchNext.get(i);
+            Drawable badge;
+            try {
+                badge = pm.getApplicationIcon(p.pkg);
+            } catch (PackageManager.NameNotFoundException e) {
+                continue;
+            }
+            String sub = WatchNext.subtitle(p);
+            Entry e = new Entry(Entry.WATCH, p.title.trim(), new ComponentName(p.pkg, "watch:" + p.title.trim()),
+                    null, badge, sub.isEmpty() ? null : sub, 0);
+            e.watch = p;
+            row.add(e);
+        }
+        if (row.isEmpty()) return;
+        pad = WatchRow.padding(row.size(), dockSize, dockRow, singleRow, reordering);
+        for (int i = 0; i < pad; i++) {
+            row.add(new Entry(Entry.EMPTY, "", new ComponentName(ctx, "empty-watch-slot-" + i), null, null, null, 0));
+        }
+        fresh.addAll(dockSize, row);
+        watchStart = dockSize;
+        watchCount = row.size() - pad;
+        watchPad = pad;
+    }
+
+    boolean isWatchAt(int position) {
+        return position >= 0 && position < items.size() && items.get(position).kind == Entry.WATCH;
+    }
+
+    /** The subtitle line of a Continue watching tile ("S2 · E5"), or "" for any other position. */
+    String watchSubtitleAt(int position) {
+        return isWatchAt(position) ? WatchNext.subtitle(items.get(position).watch) : "";
     }
 
     /** A banner_* drawable bundled with the launcher, or null for none or a name that is not one. */
@@ -436,6 +494,24 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             View label = v.findViewById(R.id.label);
             label.setPadding(label.getPaddingLeft(), label.getPaddingTop(), label.getPaddingRight(), Math.round(4f * density));
         }
+        if (viewType == 2) {
+            // Continue watching: the poster draws over the title, so the title only shows while there is no poster
+            // (yet); the app's icon sits on top as a small badge in the corner.
+            ImageView badge = v.findViewById(R.id.icon);
+            FrameLayout.LayoutParams badgeLp = (FrameLayout.LayoutParams) badge.getLayoutParams();
+            badgeLp.width = badgeLp.height = Math.round(26 * density);
+            badgeLp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.START;
+            badgeLp.setMargins(Math.round(8 * density), 0, 0, Math.round(8 * density));
+            badge.setLayoutParams(badgeLp);
+            TextView title = v.findViewById(R.id.label);
+            title.setSingleLine(false);
+            title.setMaxLines(2);
+            title.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            title.setPadding(Math.round(12 * density), 0, Math.round(12 * density), Math.round(40 * density));
+            v.findViewById(R.id.banner).bringToFront();
+            badge.bringToFront();
+            if (posters == null) posters = new PosterCache(ctx);
+        }
         return new Holder(v, listener, animations, advancedEffects, reducedMotion, restNameAlpha, focusOvershoot);
     }
 
@@ -472,6 +548,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         h.banner.setScaleY(focused && advancedEffects ? 1.035f : 1f);
         // A fully opaque banner covers the whole card (centerCrop), so the card's own fill under it is drawn for
         // nothing on every frame; keep it under banners with transparent parts and under icon tiles.
+        if (e.kind == Entry.WATCH) {
+            bindWatch(h, e);
+            return;
+        }
         h.card.setBackground(e.banner != null && e.banner.getOpacity() == PixelFormat.OPAQUE ? null : h.cardBackground);
         if (uniformTiles && e.banner == null) {
             if (e.backdrop == null) e.backdrop = backdrop(e.icon, ambientColorAt(position));
@@ -505,6 +585,57 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
             return true;
         });
+    }
+
+    /** A Continue watching poster: gradient and title until the poster arrives, the app's badge on top. */
+    private void bindWatch(Holder h, Entry e) {
+        h.card.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {0xFF1C2A44, 0xFF0B1324}));
+        h.label.setText(e.label);
+        h.label.setVisibility(View.VISIBLE);
+        h.icon.setImageDrawable(e.icon);
+        h.icon.setVisibility(e.icon != null ? View.VISIBLE : View.GONE);
+        h.banner.setImageDrawable(null);
+        h.banner.setVisibility(View.VISIBLE);
+        String uri = e.watch.posterUri;
+        h.banner.setTag(R.id.poster_uri, uri);
+        ViewGroup.LayoutParams lp = h.card.getLayoutParams();
+        if (uri != null && posters != null) posters.load(uri, lp.width, lp.height, h.banner);
+        h.card.setOnClickListener(v -> launchWatch(e));
+        h.card.setOnLongClickListener(v -> true);
+    }
+
+    /**
+     * Opens the title where the app said (its Watch Next intent_uri). A stale or malformed link, or one the app no
+     * longer answers, opens the app's start screen instead.
+     */
+    private void launchWatch(Entry e) {
+        PackageManager pm = ctx.getPackageManager();
+        String uri = e.watch.intentUri;
+        if (uri != null) {
+            try {
+                Intent i = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // Only an intent into the app that published the row: a row cannot send Home somewhere else.
+                if (i.getPackage() == null && i.getComponent() == null) i.setPackage(e.pkg);
+                String target = i.getComponent() != null ? i.getComponent().getPackageName() : i.getPackage();
+                if (e.pkg.equals(target)) {
+                    ctx.startActivity(i);
+                    return;
+                }
+            } catch (java.net.URISyntaxException | ActivityNotFoundException | SecurityException ignored) {
+            }
+        }
+        Intent start = pm.getLeanbackLaunchIntentForPackage(e.pkg);
+        if (start == null) start = pm.getLaunchIntentForPackage(e.pkg);
+        if (start == null) {
+            Toast.makeText(ctx, ctx.getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            ctx.startActivity(start.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (ActivityNotFoundException | SecurityException ex) {
+            Toast.makeText(ctx, ctx.getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** Opens the tile's activity by explicit component, with no extras: a card can name nothing else. */
@@ -547,7 +678,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     boolean isLibraryAt(int position) { return showLibrary && position == items.size(); }
 
-    @Override public int getItemViewType(int position) { return isLibraryAt(position) ? 1 : 0; }
+    /** View types: 0 an app tile, 1 the library row, 2 a Continue watching poster (its own layout tweaks). */
+    @Override public int getItemViewType(int position) {
+        return isLibraryAt(position) ? 1 : isWatchAt(position) ? 2 : 0;
+    }
 
     boolean containsPackage(String pkg) {
         for (Entry entry : items) if (entry.pkg.equals(pkg)) return true;
@@ -595,7 +729,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < movableCount(); i++) {
             Entry e = items.get(i);
-            if (e.kind != Entry.EMPTY) keys.add(e.component.flattenToShortString());
+            if (e.kind != Entry.EMPTY && e.kind != Entry.WATCH) keys.add(e.component.flattenToShortString());
         }
         return keys;
     }
@@ -603,6 +737,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Moves one tile; the others shift by one. Stable ids keep the moved tile's view (and its focus). */
     void move(int from, int to) {
         if (from == to || from < 0 || to < 0 || from >= movableCount() || to >= movableCount()) return;
+        if (items.get(from).kind == Entry.WATCH || items.get(to).kind == Entry.WATCH) return;
         items.add(to, items.remove(from));
         notifyItemMoved(from, to);
         // The dock row hides names by position: rebind the tiles whose side of the dock edge changed.
@@ -633,7 +768,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** A position focus can land on: an empty dock slot gives the last dock app. */
     int focusablePosition(int position) {
-        return DockSlots.focusable(position, docked, emptySlots);
+        int p = DockSlots.focusable(position, docked, emptySlots);
+        return watchStart < 0 ? p : WatchRow.focusable(p, watchStart, watchCount, watchPad);
     }
 
     String labelAt(int position) {
