@@ -389,6 +389,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         watchPad = pad;
     }
 
+    /** Memory pressure: drop the decoded posters (the disk copies stay). */
+    void trimPosters() {
+        if (posters != null) posters.trim();
+    }
+
     boolean isWatchAt(int position) {
         return position >= 0 && position < items.size() && items.get(position).kind == Entry.WATCH;
     }

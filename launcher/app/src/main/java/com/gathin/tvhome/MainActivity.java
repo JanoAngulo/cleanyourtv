@@ -138,6 +138,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private AppAdapter adapter;
     private RecyclerView grid;
+    /** Reads the Continue watching titles off the main thread (loadWatchNext). */
+    private final java.util.concurrent.ExecutorService watchLoader = java.util.concurrent.Executors.newSingleThreadExecutor();
+    /** The titles the Continue watching row shows now, so an unchanged read rebuilds nothing. */
+    private String watchSignature = "";
     private FrameLayout root;
     private WallpaperPlayer wallpaperPlayer;
     private GlassView glass;
@@ -968,6 +972,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             default:
                 break;
         }
+        loadWatchNext();
         if (openLiveTvAfterBoot()) return;
         updateGreeting();
         updateRace();
@@ -1080,6 +1085,46 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             startPendingSettingsReorder();
             showCardPrompt();
         }
+    }
+
+    /**
+     * Reads the Continue watching titles off the main thread each time Home comes back, and rebuilds the tiles only
+     * when the picked titles changed. No polling: what the apps wrote while Home was away shows on the next return.
+     */
+    private void loadWatchNext() {
+        if (!dockRow || singleRow) return;
+        final Set<String> hidden = new HashSet<>(hiddenApps);
+        watchLoader.execute(() -> {
+            List<WatchNext.Program> rows = WatchNextSource.read(this);
+            PackageManager pm = getPackageManager();
+            Set<String> launchable = new HashSet<>();
+            for (WatchNext.Program p : rows) {
+                if (p.pkg != null && !launchable.contains(p.pkg) && launchable(pm, p.pkg)) launchable.add(p.pkg);
+            }
+            List<WatchNext.Program> picked = WatchNext.select(rows, System.currentTimeMillis(), launchable, hidden, COLUMNS);
+            StringBuilder sig = new StringBuilder();
+            for (WatchNext.Program p : picked) {
+                sig.append(p.pkg).append('\n').append(p.title).append('\n').append(p.posterUri).append('\n')
+                        .append(WatchNext.subtitle(p)).append('\n');
+            }
+            String signature = sig.toString();
+            handler.post(() -> {
+                if (isDestroyed() || reordering || signature.equals(watchSignature)) return;
+                watchSignature = signature;
+                adapter.setWatchNext(picked);
+                reloadApps(false, true, false);
+            });
+        });
+    }
+
+    /** An installed, enabled app Home can open: a disabled app keeps its Watch Next rows (Prime Video here). */
+    private static boolean launchable(PackageManager pm, String pkg) {
+        try {
+            if (!pm.getApplicationInfo(pkg, 0).enabled) return false;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+        return pm.getLeanbackLaunchIntentForPackage(pkg) != null || pm.getLaunchIntentForPackage(pkg) != null;
     }
 
     /** True when PackageManager reports apps changed since the last rebuild (one binder call). */
@@ -1196,6 +1241,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.getRecycledViewPool().clear();
         heroArtCache.clear();
         heroArtKey = null;
+        adapter.trimPosters();
         wallpaperPlayer.releaseForMemoryPressure();
         tileRefresh.invalidate();
     }
