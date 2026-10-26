@@ -1,3 +1,15 @@
+# Tahanan
+
+Tahanan ("home" in Filipino) is John Russel Angulo's home screen for a TCL Smart TV Pro (G03, Google TV 11):
+a five-app dock, a Continue watching row of posters from the TV's Watch Next data, and rotating Philippine
+landscapes. It is a fork of [CleanYourTV](https://github.com/Gathin23/cleanyourtv) by Gathin23, released
+under the MIT licence (see `LICENSE`). Everything below this section is the upstream README.
+
+- Design: `docs/tahanan/design.md`
+- Plan: `docs/tahanan/plan.md`
+
+---
+
 <p align="center">
   <a href="https://cleanyour.tv"><img src="https://raw.githubusercontent.com/Gathin23/cleanyourtv/main/docs/banner.png" alt="CleanYourTV. Your TV, minus the ads. Strip the bloatware from any Android TV or Google TV over Wi-Fi and replace the ad-filled home screen with a clean launcher that looks like an Apple TV. No root, no cable, nothing uninstalled, and a one-line restore." width="800"></a>
 </p>
