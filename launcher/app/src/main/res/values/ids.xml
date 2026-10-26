@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PosterCache: the poster a recycled tile is waiting for, so a late image never lands on another title. -->
+    <item name="poster_uri" type="id" />
+</resources>
