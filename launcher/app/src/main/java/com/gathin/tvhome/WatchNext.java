@@ -60,6 +60,19 @@ final class WatchNext {
         return out.size() > max ? new ArrayList<>(out.subList(0, Math.max(0, max))) : out;
     }
 
+    /**
+     * What the row shows and opens, as one string: when it is unchanged the row needs no rebuild. The link is part
+     * of it, since an app can move a show to its next episode by changing only intent_uri.
+     */
+    static String signature(List<Program> picked) {
+        StringBuilder sig = new StringBuilder();
+        for (Program p : picked) {
+            sig.append(p.pkg).append('\n').append(p.title).append('\n').append(p.posterUri).append('\n')
+                    .append(subtitle(p)).append('\n').append(p.intentUri).append('\n').append(p.engagedMs).append('\n');
+        }
+        return sig.toString();
+    }
+
     /** The line under the title: "S2 · E5 · Pilot", parts left out when the app did not fill them. */
     static String subtitle(Program p) {
         StringBuilder sb = new StringBuilder();

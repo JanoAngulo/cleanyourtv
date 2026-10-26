@@ -1095,23 +1095,32 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!dockRow || singleRow) return;
         final Set<String> hidden = new HashSet<>(hiddenApps);
         watchLoader.execute(() -> {
-            List<WatchNext.Program> rows = WatchNextSource.read(this);
-            PackageManager pm = getPackageManager();
-            Set<String> launchable = new HashSet<>();
-            for (WatchNext.Program p : rows) {
-                if (p.pkg != null && !launchable.contains(p.pkg) && launchable(pm, p.pkg)) launchable.add(p.pkg);
+            List<WatchNext.Program> picked;
+            try {
+                List<WatchNext.Program> rows = WatchNextSource.read(this);
+                PackageManager pm = getPackageManager();
+                Set<String> launchable = new HashSet<>();
+                for (WatchNext.Program p : rows) {
+                    if (p.pkg != null && !launchable.contains(p.pkg) && launchable(pm, p.pkg)) launchable.add(p.pkg);
+                }
+                picked = WatchNext.select(rows, System.currentTimeMillis(), launchable, hidden, COLUMNS);
+            } catch (RuntimeException e) {
+                // A provider or cursor failure must not take Home down on every return: no row this time.
+                picked = Collections.emptyList();
             }
-            List<WatchNext.Program> picked = WatchNext.select(rows, System.currentTimeMillis(), launchable, hidden, COLUMNS);
-            StringBuilder sig = new StringBuilder();
-            for (WatchNext.Program p : picked) {
-                sig.append(p.pkg).append('\n').append(p.title).append('\n').append(p.posterUri).append('\n')
-                        .append(WatchNext.subtitle(p)).append('\n');
-            }
-            String signature = sig.toString();
+            final List<WatchNext.Program> shown = picked;
+            String signature = WatchNext.signature(shown);
             handler.post(() -> {
                 if (isDestroyed() || reordering || signature.equals(watchSignature)) return;
                 watchSignature = signature;
-                adapter.setWatchNext(picked);
+                adapter.setWatchNext(shown);
+                // Same row, new titles (the usual return from an app): swap just those tiles, keep focus and glass.
+                int focused = lastFocused;
+                boolean onPoster = grid.hasFocus() && adapter.inWatchRow(focused);
+                if (adapter.replaceWatchRow(getPackageManager())) {
+                    if (onPoster) refocusAfterLayout(adapter.focusablePosition(focused));
+                    return;
+                }
                 reloadApps(false, true, false);
             });
         });
@@ -1388,7 +1397,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         dockedAtStart = adapter.dockFilled();
         for (int i = 0; i < Math.min(dockedAtStart, adapter.movableCount()); i++) dockInSession.add(adapter.keyAt(i));
         adapter.setReordering(true);
-        if (adapter.hasEmptySlots()) reloadTiles();   // every position must hold a tile that can move
+        // Every position must hold a tile that can move: the empty dock slots and the Continue watching row go.
+        if (adapter.hasEmptySlots() || adapter.hasWatchRow()) reloadTiles();
         reordering = true;
         orderAtStart = adapter.movableKeys();
         glass.setAccent(REORDER_ACCENT);
@@ -1485,7 +1495,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Puts the app at pos into dock place slot, and the app that was there where the chosen one was; then saves. */
     private void swapIntoDock(int slot, int pos) {
         String slotKey = adapter.keyAt(slot);
-        if (pos != slot) {
+        // A Continue watching poster is not an app: choosing one changes nothing (the row is normally gone by now).
+        if (pos != slot && !adapter.inWatchRow(pos) && !adapter.inWatchRow(slot)) {
             keepScroll(() -> {
                 adapter.move(pos, slot);
                 adapter.move(adapter.positionOf(slotKey), pos);
@@ -1499,6 +1510,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void pickUp(int pos) {
         if (pos >= adapter.movableCount()) return;   // the "Default home" tile stays put
+        if (adapter.inWatchRow(pos)) return;          // nor does a Continue watching poster
         movingKey = adapter.keyAt(pos);
         dimOthers();
     }
@@ -1556,7 +1568,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 Toast.makeText(this, R.string.reorder_not_saved, Toast.LENGTH_SHORT).show();
             }
         }
-        if (fillDockLeavesSlots) reloadTiles();   // the empty dock slots left out while reordering come back
+        // The empty dock slots and the Continue watching row left out while reordering come back.
+        if (fillDockLeavesSlots || adapter.hasWatchNext()) reloadTiles();
     }
 
     /**
@@ -1580,6 +1593,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         else if (from + COLUMNS < n) to = from + COLUMNS;
         else to = from / COLUMNS < (n - 1) / COLUMNS ? n - 1 : from;
         if (to < 0 || to >= n || to == from) return;
+        // The adapter refuses a move into or out of the Continue watching row; the dock bookkeeping must not change.
+        if (adapter.inWatchRow(from) || adapter.inWatchRow(to)) return;
         keepScroll(() -> adapter.move(from, to));
         // The owner carries this tile: where it lands decides whether it is in the dock, not dock_apps (#499).
         if (to < COLUMNS) dockInSession.add(movingKey);

@@ -37,7 +37,9 @@ final class WatchNextSource {
                         num(cur, "last_engagement_time_utc_millis"), num(cur, "last_playback_position_millis"),
                         num(cur, "duration_millis")));
             }
-        } catch (SecurityException | IllegalArgumentException e) {
+        } catch (RuntimeException e) {
+            // SecurityException without the permission, IllegalArgumentException, or a provider/cursor failure
+            // (SQLiteException, IllegalStateException): no row rather than a crash on the loader thread.
             return Collections.emptyList();
         }
         return out;

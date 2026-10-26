@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 public class WatchNextTest {
@@ -74,6 +75,18 @@ public class WatchNextTest {
     @Test public void dropsBlankTitles() {
         assertTrue(select(p("com.wbd.stream", " ", NOW, 0, 0)).isEmpty());
         assertTrue(select(p("com.wbd.stream", null, NOW, 0, 0)).isEmpty());
+    }
+
+    @Test public void signatureChangesWhenOnlyTheLinkMoves() {
+        // An app that moves its row to the next episode by changing only intent_uri (same title, poster, no numbers).
+        WatchNext.Program ep3 = new WatchNext.Program("com.wbd.stream", "Show", null, null, null, "https://x/p",
+                "intent:#Intent;S.ep=3;end", NOW, 0, 0);
+        WatchNext.Program ep4 = new WatchNext.Program("com.wbd.stream", "Show", null, null, null, "https://x/p",
+                "intent:#Intent;S.ep=4;end", NOW, 0, 0);
+        assertNotEquals(WatchNext.signature(Collections.singletonList(ep3)),
+                WatchNext.signature(Collections.singletonList(ep4)));
+        assertEquals(WatchNext.signature(Collections.singletonList(ep3)),
+                WatchNext.signature(Collections.singletonList(ep3)));
     }
 
     @Test public void subtitleFormats() {

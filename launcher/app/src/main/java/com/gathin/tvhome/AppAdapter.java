@@ -360,9 +360,58 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private void addWatchRow(List<Entry> fresh, PackageManager pm) {
         watchStart = -1;
         watchCount = watchPad = 0;
+        if (fresh.size() < dockSize) return;
+        List<Entry> row = watchRowEntries(pm);
+        if (row.isEmpty()) return;
+        fresh.addAll(dockSize, row);
+        watchStart = dockSize;
+        watchCount = countWatch(row);
+        watchPad = row.size() - watchCount;
+    }
+
+    /**
+     * Swaps the Continue watching tiles in place when the row is there now and will still be there: the rest of the
+     * grid keeps its positions, so nothing else rebinds. False when the caller must reload() instead.
+     */
+    boolean replaceWatchRow(PackageManager pm) {
+        if (watchStart < 0 || reordering) return false;
+        List<Entry> row = watchRowEntries(pm);
+        int old = watchCount + watchPad;
+        if (row.isEmpty() || row.size() != old) return false;
+        for (int i = 0; i < old; i++) items.set(watchStart + i, row.get(i));
+        watchCount = countWatch(row);
+        watchPad = row.size() - watchCount;
+        // New titles mean new stable ids: remove and insert the range rather than "change" it.
+        notifyItemRangeRemoved(watchStart, old);
+        notifyItemRangeInserted(watchStart, old);
+        return true;
+    }
+
+    /** The row is in the grid now (positions watchStart.. up to a full row). */
+    boolean hasWatchRow() {
+        return watchStart >= 0;
+    }
+
+    /** There are titles to show, so the row comes back at the next reload() outside reorder mode. */
+    boolean hasWatchNext() {
+        return !watchNext.isEmpty();
+    }
+
+    /** A Continue watching poster or one of the row's empty cells: nothing reorder or Edit dock may move. */
+    boolean inWatchRow(int position) {
+        return WatchRow.contains(position, watchStart, watchCount, watchPad);
+    }
+
+    private static int countWatch(List<Entry> row) {
+        int n = 0;
+        for (Entry e : row) if (e.kind == Entry.WATCH) n++;
+        return n;
+    }
+
+    /** The row's entries, posters then empty cells up to a full row; empty when there is no row to show. */
+    private List<Entry> watchRowEntries(PackageManager pm) {
         int n = Math.min(watchNext.size(), dockSize);
-        int pad = WatchRow.padding(n, dockSize, dockRow, singleRow, reordering);
-        if (pad < 0 || fresh.size() < dockSize) return;
+        if (WatchRow.padding(n, dockSize, dockRow, singleRow, reordering) < 0) return Collections.emptyList();
         List<Entry> row = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             WatchNext.Program p = watchNext.get(i);
@@ -378,15 +427,12 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             e.watch = p;
             row.add(e);
         }
-        if (row.isEmpty()) return;
-        pad = WatchRow.padding(row.size(), dockSize, dockRow, singleRow, reordering);
+        if (row.isEmpty()) return row;
+        int pad = WatchRow.padding(row.size(), dockSize, dockRow, singleRow, reordering);
         for (int i = 0; i < pad; i++) {
             row.add(new Entry(Entry.EMPTY, "", new ComponentName(ctx, "empty-watch-slot-" + i), null, null, null, 0));
         }
-        fresh.addAll(dockSize, row);
-        watchStart = dockSize;
-        watchCount = row.size() - pad;
-        watchPad = pad;
+        return row;
     }
 
     /** Memory pressure: drop the decoded posters (the disk copies stay). */
@@ -627,7 +673,9 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     ctx.startActivity(i);
                     return;
                 }
-            } catch (java.net.URISyntaxException | ActivityNotFoundException | SecurityException ignored) {
+            } catch (java.net.URISyntaxException | RuntimeException ignored) {
+                // A malformed link (a bad typed extra in parseUri throws NumberFormatException), an activity that is
+                // gone, or one that refuses the start: open the app's start screen below instead of crashing Home.
             }
         }
         Intent start = pm.getLeanbackLaunchIntentForPackage(e.pkg);
@@ -638,7 +686,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
         try {
             ctx.startActivity(start.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (ActivityNotFoundException | SecurityException ex) {
+        } catch (RuntimeException ex) {
             Toast.makeText(ctx, ctx.getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
         }
     }

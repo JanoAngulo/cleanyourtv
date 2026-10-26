@@ -16,6 +16,11 @@ final class WatchRow {
         return Math.max(0, columns - items);
     }
 
+    /** A position in the row, poster or empty cell; never true when there is no row ({@code start} &lt; 0). */
+    static boolean contains(int position, int start, int items, int padding) {
+        return start >= 0 && position >= start && position < start + items + padding;
+    }
+
     /** A position focus can land on: an empty cell of the row sends it to the last poster. */
     static int focusable(int position, int start, int items, int padding) {
         int firstPad = start + items;
