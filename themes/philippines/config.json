@@ -1,0 +1,27 @@
+{
+  "dock_apps": [
+    "com.disney.disneyplus",
+    "com.wbd.stream",
+    "com.netflix.ninja",
+    "com.google.android.youtube.tv",
+    "com.spotify.tv.android"
+  ],
+  "fill_dock": false,
+  "columns": 5,
+  "live_tv_package": "com.tcl.tv",
+  "show_greeting": false,
+  "icon_only_buttons": true,
+  "wallpaper": true,
+  "wallpaper_rotation_minutes": 60,
+  "wallpaper_order": "sequential",
+  "wallpaper_captions": true,
+  "wallpaper_true_color": true,
+  "wallpaper_dim": 25,
+  "dock_glass": true,
+  "dock_opacity": 70,
+  "app_glow": true,
+  "focus_overshoot": false,
+  "background_color": "#0B1324",
+  "stock_home_redirect": "com.google.android.apps.tv.launcherx",
+  "key_filter": false
+}
